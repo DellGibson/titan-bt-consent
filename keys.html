@@ -79,7 +79,7 @@ async function render() {
   const st = await call("/status", "GET");
   if (st.status !== 200) { $("app").innerHTML = `<div class="card msg bad">Could not load your status (${esc(st.error || st.status)}). Sign out and try again.</div>`; return; }
 
-  $("intro").innerHTML = `Signed in as <strong>${esc(st.email)}</strong>. Your keys are saved under your name only. Nobody else, including George, sees them here.`;
+  $("intro").innerHTML = `Signed in as <strong>${esc(st.email)}</strong>. Your keys go straight to encrypted storage under your name. This page never shows them back, and nobody has to see them to set you up.`;
   const state = !st.setUp ? "Not set up yet" : !st.hasKeys ? "Keys missing" : st.enabled ? "Active" : "Saved, waiting for George to turn you on";
 
   $("app").innerHTML = `
