@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Buildertrend Key Setup</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --muted:#5b6470; --line:#dfe3e8; --go:#1f6feb; --ok:#1a7f37; --warn:#9a6700; --bad:#b42318; --field:#fff; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1216; --card:#181c22; --ink:#e7eaee; --muted:#9aa4b1; --line:#2a313a; --field:#0f1216; --ok:#3fb950; --warn:#d29922; --bad:#f85149; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width:34rem; margin:2.5rem auto; padding:0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:24px; margin-bottom:16px; }
+  h1 { font-size:1.25rem; margin:0 0 .25rem; } h2 { font-size:1rem; margin:0 0 .5rem; }
+  p, li, small { color:var(--muted); } ol { padding-left:1.2rem; }
+  label { display:block; font-weight:600; margin:14px 0 6px; }
+  input[type=text], input[type=password], input[type=date] { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--field); color:var(--ink); font:inherit; }
+  .row { display:flex; gap:12px; margin-top:18px; flex-wrap:wrap; }
+  .inline { display:flex; align-items:center; gap:8px; margin-top:10px; font-weight:400; }
+  button { padding:11px 16px; border-radius:8px; border:0; font-size:1rem; cursor:pointer; background:var(--go); color:#fff; }
+  button.ghost { background:transparent; color:var(--go); border:1px solid var(--go); }
+  button:disabled { opacity:.6; cursor:wait; }
+  .msg { margin-top:14px; padding:12px; border-radius:8px; border:1px solid var(--line); }
+  .ok { border-color:var(--ok); } .warn { border-color:var(--warn); } .bad { border-color:var(--bad); }
+  dl { display:grid; grid-template-columns:max-content 1fr; gap:4px 12px; margin:0; } dt { color:var(--muted); } dd { margin:0; }
+  code { word-break:break-all; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card"><h1>Buildertrend key setup</h1><p id="intro">Loading...</p></div>
+  <div id="app"></div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2/dist/umd/supabase.js"></script>
+<script>
+const SUPABASE_URL = "https://eekxsrzurazmzueqezra.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_56CCdTNq_tDevMgDIPciWg_mdnk5qWk";
+const API = SUPABASE_URL + "/functions/v1/bt-keys";
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, { auth: { flowType: "pkce", detectSessionInUrl: true } });
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+const todayAk = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Anchorage" });
+const akDate = (iso) => iso ? new Date(iso).toLocaleDateString("en-US", { timeZone: "America/Anchorage", year: "numeric", month: "short", day: "numeric" }) : "not recorded";
+const renewBy = (iso) => iso ? akDate(new Date(new Date(iso).getTime() + 30 * 864e5).toISOString()) : "unknown";
+
+async function call(path, method, body) {
+  const { data: { session } } = await sb.auth.getSession();
+  const r = await fetch(API + path, {
+    method,
+    headers: { Authorization: "Bearer " + session.access_token, apikey: SUPABASE_PUBLISHABLE_KEY, "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let j = {}; try { j = await r.json(); } catch (e) {}
+  return { status: r.status, ...j };
+}
+
+function dateBlock(prefix) {
+  return `<label class="inline"><input type="checkbox" id="${prefix}Today" checked> I linked my app today</label>
+    <div id="${prefix}DateWrap" hidden><label for="${prefix}Date">Date I linked it</label><input type="date" id="${prefix}Date" max="${todayAk()}"></div>`;
+}
+function wireDate(prefix) {
+  $(prefix + "Today").onchange = () => { $(prefix + "DateWrap").hidden = $(prefix + "Today").checked; };
+}
+function readDate(prefix) {
+  return $(prefix + "Today").checked ? { linkedToday: true } : { linkedToday: false, linkedOn: $(prefix + "Date").value };
+}
+
+async function render() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) {
+    $("intro").textContent = "Save your own Buildertrend app keys for Titan's Claude connector. Sign in with your Titan Microsoft 365 account first.";
+    $("app").innerHTML = `<div class="card"><div class="row" style="margin-top:0"><button id="ms">Sign in with Microsoft</button></div></div>`;
+    $("ms").onclick = () => sb.auth.signInWithOAuth({ provider: "azure", options: { scopes: "email", redirectTo: location.origin + location.pathname } });
+    return;
+  }
+
+  const st = await call("/status", "GET");
+  if (st.status !== 200) { $("app").innerHTML = `<div class="card msg bad">Could not load your status (${esc(st.error || st.status)}). Sign out and try again.</div>`; return; }
+
+  $("intro").innerHTML = `Signed in as <strong>${esc(st.email)}</strong>. Your keys are saved under your name only. Nobody else, including George, sees them here.`;
+  const state = !st.setUp ? "Not set up yet" : !st.hasKeys ? "Keys missing" : st.enabled ? "Active" : "Saved, waiting for George to turn you on";
+
+  $("app").innerHTML = `
+  <div class="card"><h2>Your status</h2>
+    <dl><dt>Connector</dt><dd>${esc(state)}</dd>
+    <dt>Writes</dt><dd>${st.writesEnabled ? "On" : "Off"}</dd>
+    <dt>App linked</dt><dd>${esc(akDate(st.linkedAt))}</dd>
+    <dt>Re-link by</dt><dd>${esc(renewBy(st.linkedAt))}</dd></dl>
+  </div>
+
+  ${st.hasKeys ? `<div class="card"><h2>Renewed your link?</h2>
+    <p>Buildertrend app links last 30 days. After you re-link in the developer portal (and finish the whole flow), record it here.</p>
+    ${dateBlock("rl")}
+    <div class="row"><button id="relink">I just re-linked</button></div><div id="rlMsg"></div></div>` : ""}
+
+  <div class="card"><h2>${st.hasKeys ? "Replace your keys" : "Save your keys"}</h2>
+    <ol>
+      <li>In <a href="https://developer.buildertrend.com/apps" target="_blank" rel="noopener">Buildertrend's developer portal</a>, open your own app (create one if needed).</li>
+      <li>Make sure it says <strong>Linked</strong> to your own Buildertrend account.</li>
+      <li>Copy the <strong>consumer key</strong> and <strong>consumer secret</strong> from the same active key. The secret is shown only once; if you lost it, add a new key.</li>
+    </ol>
+    <p><small>Never use the 30-minute access token from "Get token". Never paste these into a chat or email.</small></p>
+    <label for="ck">Consumer key (client ID)</label><input type="text" id="ck" autocomplete="off" spellcheck="false">
+    <label for="cs">Consumer secret</label><input type="password" id="cs" autocomplete="new-password" spellcheck="false">
+    ${dateBlock("sv")}
+    <div class="row"><button id="save">Check and save</button><button class="ghost" id="out">Sign out</button></div>
+    <div id="svMsg"></div>
+  </div>`;
+
+  wireDate("sv");
+  if (st.hasKeys) wireDate("rl");
+
+  $("out").onclick = async () => { await sb.auth.signOut(); location.replace(location.pathname); };
+
+  $("save").onclick = async () => {
+    const b = $("save"); b.disabled = true; b.textContent = "Checking with Buildertrend...";
+    const r = await call("/save", "POST", { consumerKey: $("ck").value, consumerSecret: $("cs").value, ...readDate("sv") });
+    $("cs").value = ""; b.disabled = false; b.textContent = "Check and save";
+    if (!r.saved) { $("svMsg").innerHTML = `<div class="msg bad">${esc(r.message || r.error || "Something went wrong.")}</div>`; return; }
+    $("ck").value = "";
+    const cls = r.buildertrend === "ok" ? "ok" : "warn";
+    const enabledNote = r.enabled ? "You're active: open Claude, go to Customize, Connectors, Titan Buildertrend, and connect." : "Saved. George still has to turn you on before the connector works for you.";
+    $("svMsg").innerHTML = `<div class="msg ${cls}"><strong>Saved.</strong> ${esc(r.nextStep)}<br>${esc(enabledNote)}</div>`;
+    setTimeout(render, 4000);
+  };
+
+  if (st.hasKeys) $("relink").onclick = async () => {
+    const r = await call("/relinked", "POST", readDate("rl"));
+    $("rlMsg").innerHTML = r.updated
+      ? `<div class="msg ok">Recorded. Re-link again by ${esc(renewBy(r.linkedAt))}.</div>`
+      : `<div class="msg bad">${esc(r.message || r.error || "Something went wrong.")}</div>`;
+    if (r.updated) setTimeout(render, 2500);
+  };
+}
+render().catch((e) => { $("app").innerHTML = `<div class="card msg bad">Error: ${esc(e.message)}</div>`; });
+</script>
+</body>
+</html>
