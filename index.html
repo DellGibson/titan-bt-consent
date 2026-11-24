@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Titan Buildertrend Access</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --muted:#5b6470; --line:#dfe3e8; --go:#1f6feb; --stop:#b42318; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1216; --card:#181c22; --ink:#e7eaee; --muted:#9aa4b1; --line:#2a313a; } }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width:30rem; margin:3rem auto; padding:0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:24px; }
+  h1 { font-size:1.25rem; margin:0 0 .5rem; }
+  p, li { color:var(--muted); }
+  .row { display:flex; gap:12px; margin-top:20px; }
+  button { flex:1; padding:12px; border-radius:8px; border:0; font-size:1rem; cursor:pointer; }
+  .go { background:var(--go); color:#fff; } .stop { background:transparent; color:var(--stop); border:1px solid var(--stop); }
+  code { word-break:break-all; }
+</style>
+</head>
+<body>
+<main><div class="card" id="box"><h1>Titan Buildertrend</h1><p>Loading...</p></div></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2/dist/umd/supabase.js"></script>
+<script>
+// Fill these two values at deploy time. The publishable (anon) key is safe in a browser page.
+const SUPABASE_URL = "https://eekxsrzurazmzueqezra.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_56CCdTNq_tDevMgDIPciWg_mdnk5qWk";
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, { auth: { flowType: "pkce", detectSessionInUrl: true } });
+const box = document.getElementById("box");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+const show = (html) => { box.innerHTML = "<h1>Titan Buildertrend</h1>" + html; };
+
+async function main() {
+  const params = new URLSearchParams(location.search);
+  const authorizationId = params.get("authorization_id") || sessionStorage.getItem("bt_authorization_id");
+  if (!authorizationId) return show("<p>Missing sign-in request. Start again from Claude.</p>");
+  sessionStorage.setItem("bt_authorization_id", authorizationId);
+
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) {
+    show("<p>Sign in with your Titan Microsoft 365 account to connect Claude to Buildertrend.</p><div class='row'><button class='go' id='ms'>Sign in with Microsoft</button></div>");
+    document.getElementById("ms").onclick = () =>
+      sb.auth.signInWithOAuth({
+        provider: "azure",
+        options: { scopes: "email", redirectTo: location.origin + location.pathname + "?authorization_id=" + encodeURIComponent(authorizationId) },
+      });
+    return;
+  }
+
+  const { data, error } = await sb.auth.oauth.getAuthorizationDetails(authorizationId);
+  if (error) return show("<p>Could not load this request: " + esc(error.message) + "</p>");
+  // Already approved earlier: Supabase returns only a redirect.
+  if (data && data.redirect_url && !data.authorization_id) { sessionStorage.removeItem("bt_authorization_id"); location.href = data.redirect_url; return; }
+
+  const clientName = data?.client?.name || "An app";
+  show(
+    "<p><strong>" + esc(clientName) + "</strong> wants to use Buildertrend as <strong>" + esc(session.user.email) + "</strong>.</p>" +
+    "<ul><li>It acts with your own Buildertrend permissions.</li><li>Changes it makes show under your name and cannot be deleted through the API.</li></ul>" +
+    "<p>Returns to: <code>" + esc(data?.redirect_uri) + "</code></p>" +
+    "<div class='row'><button class='stop' id='deny'>Deny</button><button class='go' id='ok'>Allow</button></div>"
+  );
+  const finish = async (approve) => {
+    const opts = { skipBrowserRedirect: true };
+    const r = approve ? await sb.auth.oauth.approveAuthorization(authorizationId, opts) : await sb.auth.oauth.denyAuthorization(authorizationId, opts);
+    if (r.error) return show("<p>Error: " + esc(r.error.message) + "</p>");
+    sessionStorage.removeItem("bt_authorization_id");
+    location.href = r.data.redirect_url;
+  };
+  document.getElementById("ok").onclick = () => finish(true);
+  document.getElementById("deny").onclick = () => finish(false);
+}
+main().catch((e) => show("<p>Error: " + esc(e.message) + "</p>"));
+</script>
+</body>
+</html>
